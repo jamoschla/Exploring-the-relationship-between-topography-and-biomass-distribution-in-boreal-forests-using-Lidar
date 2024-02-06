@@ -1,0 +1,18 @@
+require(lidR)
+require(sf)
+require(raster)
+
+outputdtm<- "N:/bioing/user/Jacob_Schladebach/Files/DTM/"
+outputnorm<- "N:/bioing/user/Jacob_Schladebach/Files/Normalised/"
+
+
+las<-readLAS("EN049class.laz")
+
+las<- st_transform(las, 32608)
+gnd<- filter_ground(las)
+dtm_tin <- rasterize_terrain(gnd, res = 0.5, algorithm = tin())
+nlas <- las - dtm_tin
+writeRaster(dtm_tin, paste(outputdtm,"dtm_49.tif"))
+writeLAS(nlas, paste(outputnorm,"nlas_49.laz"))
+
+

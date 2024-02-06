@@ -1,0 +1,64 @@
+require(sf)
+require(mgcv)
+require(dplyr)
+require(caret)
+
+
+
+path<-"//dmawi/potsdam/data/isipd/projects/bioing/user/Jacob_Schladebach/Files/Terrain/V2/"
+out<-"//dmawi/potsdam/data/isipd/projects/bioing/user/Jacob_Schladebach/Files/Results/V2/"
+modelOut<-"//dmawi/potsdam/data/isipd/projects/bioing/user/Jacob_Schladebach/Files/Model/V2/GAM/"
+
+
+#######################
+
+dat<- list.files()
+dat<-gsub(" ", "", dat)
+overviewDF <- data.frame(SiteID=NA, DevianceExplained = NA, Slope =NA, Elevation=NA, Aspect=NA, Curvature=NA,
+                         TWI=NA, TPI=NA, Roughness=NA, Spatial=NA)
+
+for (x in 1:length(dat)){
+  bio.df<- read.csv2(dat[x])
+  bio.df <- bio.df[complete.cases(bio.df), ]  
+  Biomass=bio.df$lyr1
+  Slope=bio.df$slope
+  Elevation=bio.df$elevation
+  Aspect=bio.df$aspect
+  Curvature=bio.df$curvature
+  TPI=bio.df$TPI
+  TWI=bio.df$TWI
+  Roughness=bio.df$roughness
+  X=bio.df$x
+  Y=bio.df$y
+
+  b <- gam(Biomass~s(Slope)+s(Elevation)+ s(Aspect)+s(Curvature)+s(TPI)+s(TWI)+s(Roughness) + s(X,Y),method = "REML")
+  
+  sum<-summary.gam(b)
+  p_val<-c(sum$s.table[,4])
+  p_val<-as.data.frame(p_val)
+  
+  ## calculate proportions deviance explained...
+  dev0 = summary(b)$dev.expl
+  
+  result<-data.frame(SiteID=dat[x],DevianceExplained = dev0,  Slope = p_val[1,], Elevation=p_val[2,], Aspect=p_val[3,], Curvature=p_val[4,],
+                     TWI=p_val[5,], TPI=p_val[6,], Roughness=p_val[7,], Spatial = p_val[8,])
+  saveRDS(b,paste(modelOut, dat[x],"_GAM.rds"))
+  
+  overviewDF<- rbind(overviewDF, result)
+}
+
+overview<- subset(overviewDF[2:26,])
+overview$SiteID<-gsub("df.csv", "", overview$SiteID)
+overview_round<-round(overview[,2:10], 4)
+write.csv2(overview_round,"Results_V2_final.csv")
+overview_round$SiteID<-overview$SiteID
+
+
+gam <- readRDS("32_GAM.rds ")
+summary(gam)
+deviance(gam)
+plot(gam,pages = 2,rug = TRUE, all.terms = TRUE, shade = TRUE, shade.col = "lightblue",shift = coef(gam)[1])
+
+
+##############
+

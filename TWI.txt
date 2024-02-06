@@ -1,0 +1,85 @@
+library(tidyverse)
+library(raster)
+library(sf)
+library(whitebox)
+library(tmap)
+whitebox::wbt_init()
+
+theme_set(theme_classic())
+
+path<-"N:/bioing/user/Jacob_Schladebach/Files/"
+out<-"N:/bioing/user/Jacob_Schladebach/Files/TWI/"
+
+
+dem<- raster(paste0(path,"DTM/dtm_69.tif"))
+tmap_mode("view")
+
+tm_shape(dem)+
+  tm_raster(style = "cont", palette = "PuOr", legend.show = TRUE)+
+  tm_scale_bar()
+
+##creating hillshade from DEM 
+
+wbt_hillshade(dem = "N:/bioing/user/Jacob_Schladebach/Files/DTM/dtm_69.tif",
+              output = "N:/bioing/user/Jacob_Schladebach/Files/TWI/hillshade_69.tif",
+              azimuth = 695)
+hillshade <- raster("N:/bioing/user/Jacob_Schladebach/Files/TWI/hillshade_69.tif")
+
+
+tm_shape(hillshade)+
+  tm_raster(style = "cont", palette = "-Greys", legend.show = FALSE)+
+  tm_scale_bar()
+
+
+##locate depressions and sinks and "fill" them
+
+wbt_breach_depressions_least_cost(
+  dem = "N:/bioing/user/Jacob_Schladebach/Files/DTM/dtm_69.tif",
+  output = "N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_69.tif",
+  dist = 5,
+  fill = TRUE)
+
+
+wbt_fill_depressions_wang_and_liu(
+  dem = "N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_69.tif",
+  output = "N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_fill_69.tif"
+)
+
+
+filled_breached <- raster("N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_fill_69.tif")
+
+
+
+###calculating flow accumulation
+
+wbt_d_inf_flow_accumulation("N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_fill_69.tif",
+                            "N:/bioing/user/Jacob_Schladebach/Files/TWI/FlowAcc_69.tif")
+
+dinf <- raster("N:/bioing/user/Jacob_Schladebach/Files/TWI/FlowAcc_69.tif")
+
+tm_shape(hillshade)+
+  tm_raster(style = "cont",palette = "-Greys", legend.show = FALSE)+
+  tm_shape(log(dinf))+
+  tm_raster(style = "cont", palette = "PuOr", legend.show = TRUE, alpha = 0.5)+
+  tm_scale_bar()
+
+
+### Flow Accumulation + Slope gives TWI
+
+wbt_slope(dem = "N:/bioing/user/Jacob_Schladebach/Files/TWI/breach_fill_69.tif",
+          output = "N:/bioing/user/Jacob_Schladebach/Files/TWI/slope_69.tif",
+          units = "degrees")
+
+wbt_wetness_index(sca = "N:/bioing/user/Jacob_Schladebach/Files/TWI/FlowAcc_69.tif",
+                  slope = "N:/bioing/user/Jacob_Schladebach/Files/TWI/slope_69.tif",
+                  output = "N:/bioing/user/Jacob_Schladebach/Files/TWI/TWI_69.tif")
+
+twi <- raster("N:/bioing/user/Jacob_Schladebach/Files/TWI/TWI_69.tif")
+twi[twi > 0] <- NA
+
+tm_shape(hillshade)+
+  tm_raster(style = "cont",palette = "-Greys", legend.show = FALSE)+
+  tm_shape(twi)+
+  tm_raster(style = "cont", palette = "PuOr", legend.show = TRUE, alpha = 0.5)+
+  tm_scale_bar()
+

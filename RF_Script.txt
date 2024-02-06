@@ -1,0 +1,130 @@
+require(lidR)
+require(sf)
+require(randomForest)
+require(terra)
+require(raster)
+require(rgdal)
+require(mapview)
+require(ggplot2)
+require(ggpubr)
+require(corrplot)
+require(caret)
+
+###load Data###
+
+
+outpredict<-"N:/bioing/user/Jacob_Schladebach/Files/Prediction/"
+outmodel<-"N:/bioing/user/Jacob_Schladebach/Files/Model/"
+
+
+ctg<- readLAScatalog("Normalised")
+
+plots<- st_read("GIS/alleplots.gpkg")
+
+opt_filter(ctg)<- "-drop_z_below 0.001"
+
+###calculate Biomass in t/ha 
+plots$total.bm <- plots$total.bm*(10000/(pi*2^2)/1000)
+
+###load metrics of pointclouds in plot area###
+D<- plot_metrics(ctg, ~stdmetrics_z(Z), plots)
+
+st_write(D, "CloudMetrics_complete.shp")
+st_write(d, "CloudMetrics_Trees.shp")
+
+###add biomass reference, drop geometry, drop incomplete cases
+D$biom<- plots$total.bm
+D2 <- st_drop_geometry(D)
+D3 <- D2[complete.cases(D2),]
+
+###build model
+tuneRF(D3[,5:40], D3$totl_bm)
+
+rfm <- randomForest(D3[,5:40], D3$totl_bm, ntree=500, mtry=24); rfm
+
+
+plotdata<- cbind(rfm$predicted, D3$totl_bm)
+colnames(plotdata)<-c("Predicted", "Observed")
+plotdata<-as.data.frame(plotdata)
+
+ggplot(plotdata, aes(x = Predicted, y = Observed)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE, color ="skyblue") +  
+  labs(x = "predicted", y = "observed", title = "Predicted and observed biomass (t/ha) all 24 plots")
+
+abline(0,1)
+
+###remove outliers and run again###
+
+remove<- c("26", "23" , "21" , "22", "2" ,"1")
+D6<- D3[!(row.names(D3) %in% remove),]
+
+
+rfm_sub <- randomForest(D6[,5:40], D6$totl_bm, ntree=500, mtry=24); rfm_sub
+plotdata2<- cbind(rfm_sub$predicted, D6$totl_bm)
+colnames(plotdata2)<-c("Predicted", "Observed")
+plotdata2<-as.data.frame(plotdata2)
+
+ggplot(plotdata2, aes(x = Predicted, y = Observed)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE, color ="skyblue") +  
+  labs(x = "predicted", y = "observed", title = "Predicted and observed biomass (t/ha) 18 plots")
+abline(0,1)
+
+
+saveRDS(rfm, paste(outmodel,"rfm_.rds"))
+
+############crossvalidation###############
+train_control <- trainControl(method = "cv", number = 5)
+
+total_bm<-c(D6$totl_bm)
+D7<-D6[,5:40]
+D7$total_bm<-total_bm
+# Split the data into training and test set
+
+
+model <- train(total_bm~., data = D7, method = "rf",
+               importance = TRUE,
+               nodesize = 14,
+               ntree = 300)
+               trControl = train_control)
+
+
+print(model)
+saveRDS(model, "crossvalidation.rds")
+
+###test feature Importance
+imp<-importance(rfm)
+scalar1 <- function(imp) {imp / sqrt(sum(imp^2))}
+scale_importance<- scalar1(importance(rfm))
+
+importance_df <- data.frame(Feature = rownames(scale_importance), Importance =scale_importance)
+ggplot(importance_df, aes(x = reorder(Feature, scale_importance), y = scale_importance)) +
+  geom_bar(stat = "identity") +
+  xlab("Feature") +
+  ylab("Importance")
+
+
+##set threshhold and choose new variables
+important<- scale_importance[scale_importance>0.1,]
+important_var<- c(names(important))
+important_var
+
+D4 <- D3[, important_var]
+D4$biom<- D3$biom
+
+rfm <- randomForest(D4[,1:15], D4$biom, ntree=500, mtry=12); rfm
+##check if its better ;)
+
+
+###predict biomass on larger area
+pc<- readLAS("nlas_05.laz", filter = "-drop_z_below 0.00001")
+
+metrics_w2w <- pixel_metrics(pc, ~stdmetrics_z(Z), res = 3.5, pkg = "terra")
+
+biom_pred <- predict(metrics_w2w, rfm_sub, na.rm =TRUE)
+plot(biom_pred, main = "Biomass estimation EN22_005")
+
+writeRaster(biom_pred, paste(outpredict, "005_Prediction.tif"))
+
+

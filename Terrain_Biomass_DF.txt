@@ -1,0 +1,81 @@
+require(sf)
+require(MultiscaleDTM)
+require(raster)
+require(terra)
+require(rgdal)
+require(spatialEco)
+require(dplyr)
+
+path<-"//smb.isipd.dmawi.de/projects/bioing/user/Jacob_Schladebach/Files/"
+out<-"//smb.isipd.dmawi.de/projects/bioing/user/Jacob_Schladebach/Files/Terrain/"
+
+dtm_list<- list.files(path = "//smb.isipd.dmawi.de/projects/bioing/user/Jacob_Schladebach/Files/DTM", pattern = "^(.*)+(\\.tif)$")
+bio_list<- list.files(path = "//smb.isipd.dmawi.de/projects/bioing/user/Jacob_Schladebach/Files/Prediction", pattern = "^(.*)+(\\.tif)$")
+twi_list<- list.files(path = "//smb.isipd.dmawi.de/projects/bioing/user/Jacob_Schladebach/Files/TWI", pattern = "^(.*)+(\\.tif)$")
+
+
+filenames<-gsub("dtm_", "", dtm_list)
+filenames<-gsub(".tif", "", filenames)
+
+for (x in 1:length(dtm_list)){
+  
+  dtm<- raster(paste0(path,"DTM/",dtm_list[x]))
+  bio<- raster(paste0(path,"Prediction/",bio_list[x]))
+  twi<- raster(paste0(path,"TWI/",twi_list[x]))  
+  dtm <- aggregate(dtm, fact=5, fun=mean)
+  bio <- aggregate(bio, fact=5, fun=mean)
+  twi <- aggregate(twi, fact=5, fun=mean)
+
+      ##resampling the two rasters to the same size
+  dtm<- resample(dtm, bio, "bilinear")
+  twi<- resample(twi, bio, "bilinear")
+  ###converting to SpatRaster for further computation
+  dtm<- as(dtm, "SpatRaster")
+  bio<- as(bio, "SpatRaster")
+  twi<- as(twi, "SpatRaster")
+  
+  ###calculate slope, roughness
+  slp<-MultiscaleDTM::SlpAsp(dtm)
+  rou<- MultiscaleDTM::VRM(dtm)
+  crv <- curvature(dtm, type = "planform")
+  tpi<- MultiscaleDTM::TPI(dtm, w = c(5,5))
+  
+  #extracting df with values per pixel
+  
+  bio.df <- terra::as.data.frame(bio$lyr1, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  slope.df<-terra::as.data.frame(slp$slope, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  aspect.df<-terra::as.data.frame(slp$aspect, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  rou.df<- terra::as.data.frame(rou$vrm, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  twi.df<- terra::as.data.frame(twi, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  elev.df<- terra::as.data.frame(dtm$Z, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  crv.df<- terra::as.data.frame(crv, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  tpi.df<- terra::as.data.frame(tpi, xy = TRUE, na.rm = TRUE, cells = TRUE) 
+  
+  cells<- c(bio.df$cell)
+  
+  slope.df<- slope.df[cells, ]
+  aspect.df<- aspect.df[cells, ]
+  rou.df<- rou.df[cells, ]
+  twi.df<- twi.df[cells, ]
+  elev.df<- elev.df[cells,]
+  crv.df<- crv.df[cells,]
+  tpi.df<-tpi.df[cells,]
+  
+  slope<- c(slope.df$slope)
+  rough<- c(rou.df$vrm)
+  twin<- c(twi.df[,4])
+  aspect<- c(aspect.df$aspect)
+  elev<- c(elev.df$Z)
+  crv<- c(crv.df$Z)
+  tpi<-c(tpi.df$tpi)
+
+  bio.df$slope<- slope
+  bio.df$aspect<- aspect
+  bio.df$roughness<- rough
+  bio.df$TWI<- twin
+  bio.df$elevation<- elev
+  bio.df$curvature<- crv
+  bio.df$TPI<-tpi
+  
+  write.csv2(bio.df, paste(out, filenames[x],"df.csv"))
+}

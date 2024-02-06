@@ -1,0 +1,60 @@
+require(BiodiversityR)
+require(cluster)
+require(NbClust)
+require(corrr)
+require(ggcorrplot)
+require(FactoMineR)
+require(factoextra)
+require(sf)
+require(ggplot2)
+
+dat<- read.csv2("//dmawi/potsdam/data/isipd/projects/bioing/user/Jacob_Schladebach/Files/Results/Results_p_value_final.csv")
+rownames(dat)<-dat$SiteID
+num_dat<- subset(dat[,4:10])
+num_dat<-as.data.frame(1-num_dat)
+
+####look for correlation
+corr_matrix <- cor(num_dat)
+ggcorrplot(corr_matrix)
+
+###visualize PCA variable correlation and COS2
+p<-prcomp(num_dat)
+
+fviz_eig(p, addlabels = TRUE)
+
+fviz_pca_var(p, col.var = "cos2",
+             gradient.cols = c("black", "orange", "green"),
+             repel = TRUE,
+             cex = 0.8, asp = 1)
+
+###keeping only significant PCs
+results<-p$x
+results<- results[,1:2]
+
+
+####perform clustering on PCs 
+NbClust(results, distance = "euclidean", min.nc = 2,max.nc = 8, method = "kmeans")
+
+##checking clustering quality with silhouette Statistic
+km2<-eclust(results, "kmeans", hc_metric="eucliden",k=3)
+fviz_silhouette(km2) 
+
+
+
+#### Adding position to the clusters
+
+
+location<-st_read("//dmawi/potsdam/data/isipd/projects/bioing/user/Jacob_Schladebach/Files/GIS/alleplots.gpkg")
+location<-as.data.frame(location)
+location<- location[!(row.names(location) %in% remove),]
+lat<-location$latitude
+long<-location$longitude
+clusters<-c(dat$SiteID)
+group<- c(km2$cluster)
+clusters<-cbind(clusters, group, lat, long)
+colnames(clusters)<-c("Site","Cluster","Latitude", "Longitude")
+clusters<-as.data.frame(clusters)
+write.csv2(clusters, "clustering_pValue.csv")
+
+
+
